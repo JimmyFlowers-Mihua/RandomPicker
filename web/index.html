@@ -1,0 +1,429 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <title>随机点名器</title>
+    <script type="text/javascript" src="/eel.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.6.0/dist/confetti.browser.min.js"></script>
+    
+    <style>
+        body { font-family: 'Segoe UI', system-ui, sans-serif; margin: 0; height: 100vh; display: flex; justify-content: center; align-items: center; background: linear-gradient(135deg, #e0c3fc 0%, #8ec5fc 100%); }
+        
+        /* 【修改 1】优化卡片整体高度管理，避免它因名字过多而无限往下撑大，并给卡片一个安全边距 */
+        .main-card { 
+            background: rgba(255, 255, 255, 0.7); 
+            padding: 40px 60px; 
+            border-radius: 24px; 
+            box-shadow: 0 20px 40px rgba(0,0,0,0.1); 
+            text-align: center; 
+            backdrop-filter: blur(15px); 
+            width: 80%;
+            max-width: 600px;
+            box-sizing: border-box;
+            max-height: 90vh;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+        
+        .main-select {
+            appearance: none; background: rgba(255, 255, 255, 0.6); border: 2px solid rgba(255, 255, 255, 0.9);
+            padding: 12px 25px; border-radius: 50px; font-size: 1.2rem; color: #2c3e50;
+            outline: none; cursor: pointer; text-align: center; font-weight: bold;
+            box-shadow: 0 5px 15px rgba(0,0,0,0.05); margin-bottom: 25px; transition: 0.3s;
+            width: 100%; max-width: 300px;
+            flex-shrink: 0;
+        }
+        .main-select:hover { background: rgba(255, 255, 255, 0.9); transform: translateY(-2px); }
+        
+        /* 【修改 2】将 result-text 升级为带滚动条的网格自适应容器 */
+        .result-text { 
+            font-size: 5rem; 
+            color: #2c3e50; 
+            margin: 0 0 25px 0; 
+            font-weight: 800; 
+            height: 220px;            /* 拥有固定的工作高度 */
+            max-height: 25vh;        /* 最大占据 25% 屏幕可视高度 */
+            width: 100%;             /* 撑满父卡片 */
+            letter-spacing: 2px;
+            overflow-y: auto;        /* 超出时自动显示滚动条 */
+            box-sizing: border-box;
+            padding: 10px;
+            
+            /* 使用弹性盒子或 Grid 进行优雅的自适应排列 */
+            display: flex;
+            flex-wrap: wrap;
+            justify-content: center;
+            align-content: center;
+            gap: 12px;
+        }
+
+        /* 隐藏或美化滚动条，防止其破坏美观 */
+        .result-text::-webkit-scrollbar {
+            width: 6px;
+        }
+        .result-text::-webkit-scrollbar-thumb {
+            background-color: rgba(44, 62, 80, 0.2);
+            border-radius: 3px;
+        }
+
+        /* 【修改 3】新增单个名字卡片的动画与高亮样式 */
+        .drawn-name {
+            background: rgba(255, 255, 255, 0.85);
+            padding: 6px 16px;
+            border-radius: 50px;
+            box-shadow: 0 4px 10px rgba(0,0,0,0.05);
+            display: inline-block;
+            transition: all 0.3s ease;
+            white-space: nowrap;
+        }
+        
+        .btn-start { background: #4a90e2; color: white; border: none; padding: 18px 60px; font-size: 1.8rem; border-radius: 50px; cursor: pointer; transition: 0.3s; box-shadow: 0 8px 20px rgba(74, 144, 226, 0.4); font-weight: bold; flex-shrink: 0;}
+        .btn-start:hover { transform: translateY(-3px); box-shadow: 0 12px 25px rgba(74, 144, 226, 0.6); }
+        
+        .settings-btn { position: fixed; bottom: 40px; right: 40px; background: white; border: none; border-radius: 50%; width: 65px; height: 65px; font-size: 1.8rem; cursor: pointer; box-shadow: 0 8px 20px rgba(0,0,0,0.15); transition: 0.3s; z-index: 10;}
+        .settings-btn:hover { transform: rotate(90deg); }
+        
+        .modal { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.4); justify-content: center; align-items: center; backdrop-filter: blur(5px); z-index: 100;}
+        .modal-content { background: white; padding: 40px; border-radius: 20px; width: 650px; max-height: 80vh; overflow-y: auto; box-shadow: 0 20px 50px rgba(0,0,0,0.2); position: relative; }
+        .modal h2 { margin-top: 0; color: #2c3e50; display: flex; justify-content: space-between; align-items: center;}
+        .close-btn { font-size: 1.5rem; cursor: pointer; color: #7f8c8d; }
+        
+        .control-group { margin-bottom: 25px; text-align: left; }
+        .control-group label { display: block; margin-bottom: 8px; font-weight: bold; color: #34495e; }
+        input[type="file"], input[type="number"], input[type="text"], select { width: 100%; padding: 10px; border-radius: 8px; border: 1px solid #bdc3c7; font-size: 1rem; box-sizing: border-box; }
+        
+        .student-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; background: #f8f9fa; padding: 15px; border-radius: 8px; max-height: 250px; overflow-y: auto; }
+        .student-item { display: flex; align-items: center; font-size: 1rem; color: #2c3e50; font-weight: bold;}
+        .student-item input { margin-right: 8px; cursor: pointer; width: auto; }
+        
+        .btn-action { background: #2ecc71; color: white; border: none; padding: 10px 20px; border-radius: 8px; cursor: pointer; font-weight: bold; transition: 0.3s;}
+        .btn-action:hover { filter: brightness(0.9); }
+        .btn-danger { background: #e74c3c; margin-left: 10px; }
+        
+        .confirm-modal { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); justify-content: center; align-items: center; backdrop-filter: blur(8px); z-index: 200; }
+        .confirm-content { background: white; padding: 35px 40px; border-radius: 20px; width: 350px; text-align: center; box-shadow: 0 20px 50px rgba(0,0,0,0.3); transform: translateY(-20px); animation: slideDown 0.3s forwards;}
+        @keyframes slideDown { to { transform: translateY(0); } }
+        .confirm-content h3 { margin-top: 0; color: #e74c3c; font-size: 1.6rem; }
+        .confirm-content p { color: #34495e; font-size: 1.1rem; margin-bottom: 30px; line-height: 1.5; font-weight: bold;}
+        .confirm-btns { display: flex; justify-content: space-between; gap: 15px; }
+        .btn-cancel { background: #95a5a6; color: white; border: none; padding: 12px 0; border-radius: 8px; cursor: pointer; font-weight: bold; flex: 1; transition: 0.3s; }
+        .btn-cancel:hover { background: #7f8c8d; }
+
+        .watermark {
+            display: flex; justify-content: space-between; align-items: center;
+            font-size: 0.8rem; color: #95a5a6; margin-top: 30px; padding-top: 15px;
+            border-top: 1px dashed #ecf0f1;
+        }
+        .telemetry-toggle { display: flex; align-items: flex-start; cursor: pointer; text-align: left; max-width: 75%; }
+        .telemetry-toggle input { margin-right: 10px; cursor: pointer; width: auto; margin-top: 4px; }
+        
+        .toast-notice {
+            display: none; /* 默认完全隐藏，防止刷新时闪烁 */
+            position: fixed; top: 20px; left: 20px; background: rgba(255, 255, 255, 0.95);
+            border-left: 4px solid #4a90e2; padding: 10px 14px; border-radius: 6px;
+            box-shadow: 0 6px 18px rgba(0,0,0,0.1); z-index: 999; font-size: 0.8rem;
+            color: #34495e; max-width: 240px; text-align: left; backdrop-filter: blur(8px);
+            opacity: 0; transform: translateY(-10px); transition: opacity 0.5s ease, transform 0.5s ease;
+        }
+    </style>
+</head>
+<body>
+
+    <div class="toast-notice" id="toastNotice">
+        <div style="font-weight: bold; margin-bottom: 3px; color: #2c3e50;">⚙️ 系统提示</div>
+        <div>软件已启动匿名设备信息收集。如需关闭，请前往二级菜单设置。</div>
+    </div>
+
+    <div class="main-card">
+        <select class="main-select" id="mainPresetSelect" onchange="syncPresetSelection(this.value)"></select>
+        <div class="result-text" id="displayBox">等待抽取</div>
+        <button class="btn-start" onclick="startPicking()">🎲 开始抽取</button>
+    </div>
+    
+    <button class="settings-btn" onclick="openSettings()">⚙️</button>
+
+    <div class="modal" id="settingsModal">
+        <div class="modal-content">
+            <h2>后台控制中心 <span class="close-btn" onclick="closeSettings()">✖</span></h2>
+
+            <div class="control-group" style="background: #f0f7ff; padding: 15px; border-radius: 10px;">
+                <label>📥 导入新名单</label>
+                <input type="text" id="presetNameInput" placeholder="输入名单名称，例如：21电网1班" style="margin-bottom: 10px;">
+                <input type="file" id="excelFile" accept=".xlsx, .xls">
+                <button class="btn-action" style="margin-top: 10px;" onclick="uploadExcel()">确认提取</button>
+            </div>
+
+            <div class="control-group" style="background: #fff5f5; padding: 15px; border-radius: 10px; border: 1px solid #ffe3e3;">
+                <label>📋 管理名单 (切换或删除名单)</label>
+                <div style="display: flex; gap: 10px;">
+                    <select id="modalPresetSelect" onchange="syncPresetSelection(this.value)"></select>
+                    <button class="btn-action btn-danger" style="white-space: nowrap;" onclick="showDeleteConfirm()">🗑️ 删除</button>
+                </div>
+            </div>
+
+            <div class="control-group">
+                <label>🔢 抽取人数</label>
+                <input type="number" id="drawCount" value="1" min="1" max="100" style="width: 100px;"> <!-- 【修改 4】支持输入框最大人数拓展，配合自适应 -->
+            </div>
+
+            <div class="control-group">
+                <label>🚫 临时排除 (当前名单：<span id="currentPresetNameLabel" style="color:#e74c3c;">未选择</span>)</label>
+                <div class="student-grid" id="studentList"></div>
+            </div>
+
+            <div class="watermark">
+                <label class="telemetry-toggle">
+                    <input type="checkbox" id="telemetryCheckbox" onchange="onTelemetryChange()" checked>
+                    <div>
+                        <span style="font-weight: bold; color: #2c3e50;">允许发送匿名设备信息以支持开发者</span>
+                        <div style="font-size: 0.72rem; color: #7f8c8d; font-weight: normal; margin-top: 4px; line-height: 1.35;">
+                            本信息收集仅用于个人软件的迭代优化 and 成果展示，承诺永远不用于广告等任何形式的商业用途。请您放心。
+                        </div>
+                    </div>
+                </label>
+                <span style="white-space: nowrap; margin-left: 15px; align-self: flex-end; padding-bottom: 2px;">Powered by JimmyFlowers｜2026</span>
+            </div>
+        </div>
+    </div>
+
+    <div class="confirm-modal" id="confirmModal">
+        <div class="confirm-content">
+            <h3>⚠️ 永久删除确认</h3>
+            <p id="confirmMessageText">确定要删除当前名单吗？此操作不可恢复。</p>
+            <div class="confirm-btns">
+                <button class="btn-cancel" onclick="closeConfirm()">取消保留</button>
+                <button class="btn-action btn-danger" style="flex: 1; margin: 0;" onclick="executeDelete()">确认删除</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        window.onload = function() { 
+            loadPresets(null); 
+            loadTelemetryStatus();
+            checkAndShowToast();
+        };
+        
+        async function checkAndShowToast() {
+            let hasSeen = await eel.get_config('has_seen_notice')();
+            if (hasSeen !== 'true') {
+                let toast = document.getElementById('toastNotice');
+                toast.style.display = 'block';
+                
+                setTimeout(() => {
+                    toast.style.opacity = '1';
+                    toast.style.transform = 'translateY(0)';
+                }, 50);
+
+                setTimeout(() => {
+                    toast.style.opacity = '0';
+                    toast.style.transform = 'translateY(-10px)';
+                    setTimeout(() => toast.style.display = 'none', 500);
+                }, 3000);
+
+                eel.set_config('has_seen_notice', 'true')();
+            }
+        }
+
+        function openSettings() { document.getElementById('settingsModal').style.display = 'flex'; }
+        function closeSettings() { document.getElementById('settingsModal').style.display = 'none'; }
+
+        async function loadTelemetryStatus() {
+            let status = await eel.get_config('telemetry_enabled')();
+            document.getElementById('telemetryCheckbox').checked = (status !== 'false');
+        }
+
+        function onTelemetryChange() {
+            let isEnabled = document.getElementById('telemetryCheckbox').checked;
+            eel.toggle_telemetry(isEnabled)();
+        }
+
+        async function loadPresets(autoSelectId = null) {
+            let presets = await eel.get_presets()();
+            let mainSelect = document.getElementById('mainPresetSelect');
+            let modalSelect = document.getElementById('modalPresetSelect');
+            
+            mainSelect.innerHTML = '';
+            modalSelect.innerHTML = '';
+            
+            if (presets.length === 0) {
+                mainSelect.innerHTML = '<option value="">暂无名单</option>';
+                modalSelect.innerHTML = '<option value="">暂无名单</option>';
+                document.getElementById('studentList').innerHTML = '';
+                document.getElementById('currentPresetNameLabel').innerText = "未选择";
+                return;
+            }
+            
+            presets.forEach(p => {
+                let opt1 = document.createElement('option');
+                opt1.value = p.id; opt1.innerText = p.name;
+                mainSelect.appendChild(opt1);
+                
+                let opt2 = document.createElement('option');
+                opt2.value = p.id; opt2.innerText = p.name;
+                modalSelect.appendChild(opt2);
+            });
+            
+            let targetId = autoSelectId;
+            if (!targetId) {
+                targetId = await eel.get_config('last_preset')();
+            }
+            
+            if (targetId && document.querySelector(`#mainPresetSelect option[value="${targetId}"]`)) {
+                syncPresetSelection(targetId);
+            } else {
+                syncPresetSelection(mainSelect.value);
+            }
+        }
+
+        async function syncPresetSelection(presetId) {
+            let mainSelect = document.getElementById('mainPresetSelect');
+            let modalSelect = document.getElementById('modalPresetSelect');
+            
+            mainSelect.value = presetId;
+            modalSelect.value = presetId;
+            
+            let presetName = mainSelect.options[mainSelect.selectedIndex]?.text || "未选择";
+            
+            if (presetId) {
+                eel.set_config('last_preset', presetId)();
+                document.getElementById('currentPresetNameLabel').innerText = presetName;
+                
+                let students = await eel.get_students(presetId)();
+                let grid = document.getElementById('studentList');
+                grid.innerHTML = '';
+                students.forEach(name => {
+                    let div = document.createElement('div');
+                    div.className = 'student-item';
+                    div.innerHTML = `<input type="checkbox" value="${name}"> <label>${name}</label>`;
+                    grid.appendChild(div);
+                });
+            }
+        }
+
+        function showDeleteConfirm() {
+            let presetId = document.getElementById('modalPresetSelect').value;
+            if (!presetId) { alert("当前没有可删除的名单！"); return; }
+            
+            let presetName = document.getElementById('modalPresetSelect').options[document.getElementById('modalPresetSelect').selectedIndex].text;
+            document.getElementById('confirmMessageText').innerText = `确定要清空【${presetName}】的所有数据吗？`;
+            document.getElementById('confirmModal').style.display = 'flex';
+        }
+
+        function closeConfirm() { document.getElementById('confirmModal').style.display = 'none'; }
+
+        async function executeDelete() {
+            closeConfirm();
+            let presetId = document.getElementById('modalPresetSelect').value;
+            let res = await eel.delete_preset(presetId)();
+            if(res.success){
+                loadPresets(); 
+            } else {
+                alert("删除失败：" + res.error);
+            }
+        }
+
+        function uploadExcel() {
+            let fileInput = document.getElementById('excelFile');
+            let nameInput = document.getElementById('presetNameInput').value;
+            if (!nameInput) { alert("请先起个名字！"); return; }
+            if (fileInput.files.length === 0) { alert("请选择要导入的 Excel 文件！"); return; }
+
+            let btn = document.querySelector('.btn-action');
+            btn.innerText = "智能读取中...";
+            
+            let file = fileInput.files[0];
+            let reader = new FileReader();
+            reader.onload = async function(e) {
+                let base64Data = e.target.result;
+                let response = await eel.import_excel(base64Data, nameInput)();
+                if (response.success) {
+                    alert(response.message);
+                    loadPresets(response.new_preset_id);
+                    fileInput.value = ''; document.getElementById('presetNameInput').value = '';
+                } else {
+                    alert("导入失败: " + response.error);
+                }
+                btn.innerText = "确认提取";
+            };
+            reader.readAsDataURL(file);
+        }
+
+        // 【修改 5】重构开始抽取函数，引入自适应字号与网格布局
+        async function startPicking() {
+            let presetId = document.getElementById('mainPresetSelect').value;
+            if (!presetId) { alert("请先导入或选择一个名单！"); return; }
+
+            let count = parseInt(document.getElementById('drawCount').value);
+            let excludeNames = Array.from(document.querySelectorAll('#studentList input:checked')).map(cb => cb.value);
+
+            const display = document.getElementById('displayBox');
+            
+            // 重置排版为弹性局中的单行字
+            display.style.display = 'flex';
+            display.style.alignContent = 'center';
+            display.style.color = '#7f8c8d';
+            display.style.fontSize = '3rem';
+            display.innerText = "正在打乱池子...";
+            
+            setTimeout(async () => {
+                let response = await eel.pick_student(presetId, excludeNames, count)();
+                
+                if (response.success) {
+                    display.innerHTML = '';
+                    display.style.color = '#e74c3c';
+                    
+                    let drawnCount = response.results.length;
+                    
+                    // 根据抽中的总人数，动态伸缩配置最舒适的【字号】和【外边距】
+                    let fontSize = '5rem';
+                    let paddingSize = '6px 16px';
+                    
+                    if (drawnCount > 40) {
+                        fontSize = '1.1rem';
+                        paddingSize = '4px 10px';
+                    } else if (drawnCount > 20) {
+                        fontSize = '1.35rem';
+                        paddingSize = '5px 12px';
+                    } else if (drawnCount > 10) {
+                        fontSize = '1.8rem';
+                        paddingSize = '6px 14px';
+                    } else if (drawnCount > 4) {
+                        fontSize = '2.5rem';
+                    } else if (drawnCount > 1) {
+                        fontSize = '3.8rem';
+                    }
+                    
+                    display.style.fontSize = fontSize;
+                    
+                    // 如果只抽 1 个人，沿用传统的唯美单行霸屏字
+                    if (drawnCount === 1) {
+                        display.innerText = response.results[0];
+                    } else {
+                        // 如果抽多个人，采用带圆角毛玻璃质感的胶囊气泡“卡片化”横向排版
+                        display.style.display = 'flex';
+                        display.style.alignContent = 'flex-start'; // 顶部对齐
+                        
+                        response.results.forEach(name => {
+                            let nameSpan = document.createElement('span');
+                            nameSpan.className = 'drawn-name';
+                            nameSpan.style.padding = paddingSize;
+                            nameSpan.innerText = name;
+                            display.appendChild(nameSpan);
+                        });
+                    }
+                    
+                    confetti({ particleCount: 180, spread: 100, origin: { y: 0.5 }, colors: ['#26ccff', '#a25afd', '#ff5e7e', '#88ff5a', '#fcff42'] });
+                } else {
+                    display.style.display = 'flex';
+                    display.style.alignContent = 'center';
+                    display.style.color = '#c0392b';
+                    display.style.fontSize = '2rem';
+                    display.innerText = response.error;
+                }
+            }, 600);
+        }
+    </script>
+</body>
+</html>
